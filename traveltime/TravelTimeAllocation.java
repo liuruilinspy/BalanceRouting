@@ -175,7 +175,7 @@ public class TravelTimeAllocation {
 		return roadlist;
 	}
 	
-	public static void preprocess_intervals(String database, String sample_table){
+	public static void preprocess_intervals(String database, String sample_table,  ArrayList<String> taxi_list){
 		Connection con = null;
 		Statement stmt = null;
 		ResultSet rs = null;
@@ -232,13 +232,14 @@ public class TravelTimeAllocation {
 		    e.printStackTrace();
 		}
 		
-		//for(int i=0; i<taxi_list.size(); i++){
-			//String cur_suid=taxi_list.get(i);
+		for(int i=0; i<taxi_list.size(); i++){
+			String cur_suid=taxi_list.get(i);
+			System.out.println("-------preprocess_intervals:	"+i+"	/	"+taxi_list.size());
 			ArrayList<Sample> samplelist=new ArrayList<Sample>();
 			try{
 	    		//spt = con.setSavepoint("svpt1");
-	    		String sql="select * from "+ sample_table +" order by suid, utc ";
-	    		System.out.println(sql);
+	    		String sql="select * from "+ sample_table +" where suid="+cur_suid+" and (ostdesc not like '%定位无效%') order by utc;";
+	    		//System.out.println(sql);
 	    		rs = stmt.executeQuery(sql);
 	    		
 			    while(rs.next()){
@@ -253,6 +254,7 @@ public class TravelTimeAllocation {
 			
 			Sample cur_sample=null;
 			Sample pre_sample=null;
+			ArrayList<String> updates=new ArrayList<String>();
 			for(int j=0;j<samplelist.size(); j++){
 				try{
 					pre_sample=cur_sample;
@@ -270,10 +272,31 @@ public class TravelTimeAllocation {
 						try{
 					    	spt = con.setSavepoint("svpt1");
 					    	String offset=df.format(pre_sample.offset);
-					    	String sql="UPDATE "+ sample_table +" SET interval=" + cur_sample.interval +", pre_gid=" + pre_sample.gid +", pre_offset=" + offset
-					    			+ " WHERE suid="+ cur_sample.suid + " and utc=" +cur_utc ;
-							System.out.println("["+j+"/"+samplelist.size()+"]"+sql);
-							stmt.executeUpdate(sql);
+					    	String newsql="UPDATE "+ sample_table +" SET interval=" + cur_sample.interval +", pre_gid=" + pre_sample.gid +", pre_offset=" + offset
+					    			+ " WHERE suid="+ cur_sample.suid + " and utc=" +cur_utc +"; \n";
+							//System.out.println("["+j+"/"+samplelist.size()+"]"+sql);
+							//stmt.executeUpdate(sql);
+					    	updates.add(newsql);
+					    	if(updates.size()>500){
+				    			String sql="";
+				    			try{
+				    				for(int vi=0; vi<updates.size(); vi++){
+				    					sql+=updates.get(vi);
+				    				}
+				    				//System.out.println(sql);
+				    				//Savepoint spt3 = con.setSavepoint("svpt3");
+				    				stmt.executeUpdate(sql);
+				    			}
+						    	catch (SQLException e) {
+						    		System.err.println(sql);
+								    e.printStackTrace();
+								    con.rollback();
+								}
+								finally{
+									con.commit();
+									updates.clear();
+								}	
+				    		}
 					    }
 					    catch (SQLException e) {
 							e.printStackTrace();
@@ -294,8 +317,109 @@ public class TravelTimeAllocation {
 				    e.printStackTrace();
 				}
 			}
+			try{
+				if(updates.size()>0){
+	    			String sql="";
+					try{
+			    		for(int vi=0; vi<updates.size(); vi++){
+	    		    		sql+=updates.get(vi);
+	    		    	}
+			    		//System.out.println(sql);
+	    		    	stmt.executeUpdate(sql);
+			    	}
+			    	catch (SQLException e) {
+			    		System.err.println(sql);
+					    e.printStackTrace();
+					    con.rollback();
+					}
+					finally{
+						con.commit();
+						updates.clear();
+					}	
+	    		}
+			}
+			catch (SQLException e) {
+			    e.printStackTrace();
+			}
+			catch (Exception e) {
+			    e.printStackTrace();
+			}
+		}
 		DBconnector.dropConnection(con);
 		System.out.println("preprocess_interval finished!");
+	}
+	
+	public static void filter_roads(String database, String whole_map, String filtered_map, long min_x_lon, long max_x_lon, long min_y_lon, long max_y_lon){
+		
+		Connection con = null;
+		Statement stmt = null;
+		Savepoint spt=null;
+		
+		double min_x=min_x_lon/100000.0;
+		double max_x=max_x_lon/100000.0;
+		double min_y=min_y_lon/100000.0;
+		double max_y=max_y_lon/100000.0;
+
+		con = DBconnector.getConnection("jdbc:postgresql://localhost:5432/"+database, "postgres", "");
+		if (con == null) {
+			System.out.println("Failed to make connection!");
+			return;
+		}
+		
+		try{
+			stmt = con.createStatement();
+			
+			try{
+	    		spt = con.setSavepoint("svpt1");
+	    		String sql="drop table "+ filtered_map +";";
+	    		System.out.println(sql);
+	    		stmt.executeUpdate(sql);
+	    	}
+	    	catch (SQLException e) {
+			    e.printStackTrace();
+			    con.rollback(spt);
+			}
+			finally{
+				con.commit();
+			}
+			
+			try{
+		    	spt = con.setSavepoint("svpt2");
+		    	String sql="create table "+ filtered_map +" as select * from "+ whole_map +" where " +
+		    			" x1>="+min_x+" and x1<="+max_x+" and y1>="+min_y+" and y1<="+max_y+
+		    			" and x2>="+min_x+" and x2<="+max_x+" and y2>="+min_y+" and y2<="+max_y+";";
+		    	System.out.println(sql);
+		    	stmt.executeUpdate(sql);
+		    }
+		    catch (SQLException e) {
+				e.printStackTrace();
+				con.rollback(spt);
+			}
+			finally{
+				con.commit();
+			}
+			
+			try{
+	    		spt = con.setSavepoint("svpt4");
+	    		String sql="CREATE INDEX "+filtered_map+"_gid_idx ON "+ filtered_map +"(gid);";
+	    		System.out.println(sql);
+	    		stmt.executeUpdate(sql);
+	    	}
+	    	catch (SQLException e) {
+			    e.printStackTrace();
+			    con.rollback(spt);
+			}
+			finally{
+				con.commit();
+			}
+			
+		}
+		catch (SQLException e) {
+		    e.printStackTrace();
+		}
+		catch (Exception e) {
+		    e.printStackTrace();
+		}
 	}
 	
 	public static void allocate_time(String database, AllocationRoadsegment[] roadlist, String sample_table, String result_table, ArrayList<String> taxi_list, long start_utc, long end_utc){
@@ -349,7 +473,9 @@ public class TravelTimeAllocation {
 			
 			try{
 	    		//spt = con.setSavepoint("svpt1");
-	    		String sql="select * from "+ sample_table +/*" where suid="+ cur_suid+ " and " + */" where utc>="+start_utc+ " and utc<"+end_utc+" order by suid, utc ";
+	    		String sql="select * from "+ sample_table +/*" where suid="+ cur_suid+ " and " + */
+	    				" where utc>="+start_utc+ " and utc<"+end_utc+ " and (gid is not null) and (stop is null or stop!=1) and (ostdesc not like '%定位无效%') "+
+	    				" order by suid, utc ";
 	    		System.out.println(sql);
 	    		rs = stmt.executeQuery(sql);
 	    		
@@ -371,8 +497,9 @@ public class TravelTimeAllocation {
 			long pre_suid=-1;
 			long pre_interval=-1;
 			
+			ArrayList<String> updates=new ArrayList<String>();
 			for(int j=0;j<samplelist.size(); j++){
-				System.out.println("-----------["+j+"/"+samplelist.size()+"]--------------");
+				System.out.println("-----------Allocating: ["+j+"/"+samplelist.size()+"]--------------");
 				cur_sample=samplelist.get(j);
 				try{
 					if(cur_sample.stop==1 || (cur_sample.stop==2 && cur_sample.suid!=pre_suid)){
@@ -437,6 +564,32 @@ public class TravelTimeAllocation {
 							}
 							
 							if(added_coverage>=0){
+								
+								//make sure the insert has been handled;
+								if(updates.size()>0){
+									String sql="Insert into "+ result_table +" (seq, gid, next_gid, time, percent, interval, tmstp, suid, utc, start_pos) values \n";
+									try{
+							    		for(int vi=0; vi<updates.size(); vi++){
+							    			if(vi!=0){
+					    		    			sql+=", \n";
+					    		    		}
+					    		    		sql+=updates.get(vi);
+					    		    	}
+							    		System.out.println(sql);
+					    		    	stmt.executeUpdate(sql);
+							    	}
+							    	catch (SQLException e) {
+							    		System.err.println(sql);
+									    e.printStackTrace();
+									    con.rollback();
+									}
+									finally{
+										con.commit();
+										updates.clear();
+									}	
+					    		}
+								
+								//then update
 								try{
 									if(interval<pre_interval){
 										interval=pre_interval;
@@ -454,7 +607,7 @@ public class TravelTimeAllocation {
 								    System.out.println(sql);
 								    int re_value=stmt.executeUpdate(sql);
 								    if(re_value!=1){
-								    	System.err.println("Error: Abnormal Update Behavior!	return_value=" +re_value);
+								    	System.err.println("Error: Abnormal Update Behavior! return_value=" +re_value +"	"+sql);
 								    }
 						    	}
 						    	catch (SQLException e) {
@@ -476,12 +629,12 @@ public class TravelTimeAllocation {
 							if(cur_sample.route==null || cur_sample.route.equals("")){
 								continue;
 							}
-							if(cur_sample.utc.getTime()/1000==1231233148L && cur_sample.suid==4231){
+							/*if(cur_sample.utc.getTime()/1000==1231233148L && cur_sample.suid==4231){
 								System.out.println();
 							}
 							if(cur_sample.suid==2476 && cur_sample.utc.getTime()/1000==1231233039){
 								System.out.println("here");
-							}
+							}*/
 							String[] route_gids=cur_sample.route.split(",");
 							ArrayList<Integer> gidlist=new ArrayList<Integer>();
 							ArrayList<Double> timelist=new ArrayList<Double>();
@@ -497,7 +650,7 @@ public class TravelTimeAllocation {
 									if(gid<0){
 										break;
 									}
-									
+									//System.out.println("gid:"+gid);
 									if( k==0 && gid == cur_sample.pre_gid){
 										startpos = pre_offset;
 										if( gid != cur_sample.gid){
@@ -577,6 +730,7 @@ public class TravelTimeAllocation {
 							}
 							
 							long start_time=cur_sample.utc.getTime()/1000-cur_sample.interval;
+							//String sql="Insert into "+ result_table +" (seq, gid, next_gid, time, percent, interval, tmstp, suid, utc, start_pos) values \n";
 							for(int k=0; k<gidlist.size();k++){
 								int gid=gidlist.get(k);
 								double coverage=coverlist.get(k);
@@ -589,30 +743,56 @@ public class TravelTimeAllocation {
 									next_gid=gidlist.get(k+1);
 								}
 								double travel_time=cur_sample.interval*roadlist[gid].length/roadlist[gid].get_speed(next_gid)*coverage/total_time;
-								long tmsp= start_time+ Math.round(cur_sample.interval*timelist.get(k)-travel_time);
+								long tmsp= start_time + Math.round(timelist.get(k)-travel_time);
 								
-								try{
-									if(cur_sample.suid==4232){
-										//System.out.println("here");
+								//if(cur_sample.suid==4232){
+									//System.out.println("here");
+								//}
+						    	
+						    	seq++;
+						    	String newsql="";
+						    	if(k<gidlist.size()-1){
+							    	newsql=" ("+seq+", "+gid+", "+gidlist.get(k+1)+", "+travel_time+", "+coverage+", "+cur_sample.interval+", "+tmsp+", "+cur_sample.suid+", "+cur_sample.utc.getTime()/1000+", "+start_pos+") ";
+						    	}
+						    	else{
+						    		newsql=" ("+seq+", "+gid+", NULL , "+travel_time+", "+coverage+", "+cur_sample.interval+", "+tmsp+", "+cur_sample.suid+", "+cur_sample.utc.getTime()/1000+", "+start_pos+") ";
+						    	}
+						    	updates.add(newsql);
+						    	pre_suid=cur_sample.suid;
+						    	
+						    	if(updates.size()>200){
+									String sql="Insert into "+ result_table +" (seq, gid, next_gid, time, percent, interval, tmstp, suid, utc, start_pos) values \n";
+									try{
+							    		for(int vi=0; vi<updates.size(); vi++){
+					    		    		if(vi!=0){
+					    		    			sql+=", \n";
+					    		    		}
+							    			sql+=updates.get(vi);
+					    		    	}
+							    		//System.out.println("["+i+"/"+trips.size()+"]");
+							    		System.out.println(sql);
+					    		    	stmt.executeUpdate(sql);
+							    	}
+							    	catch (SQLException e) {
+							    		System.err.println(sql);
+									    e.printStackTrace();
+									    con.rollback();
 									}
-						    		spt = con.setSavepoint("svpt1");
-						    		String sql="";
-						    		seq++;
-						    		if(k<gidlist.size()-1){
-							    		sql="Insert into "+ result_table +" (seq, gid, next_gid, time, percent, interval, tmstp, suid, utc, start_pos) values " +
-							    				" ("+seq+", "+gid+", "+gidlist.get(k+1)+", "+travel_time+", "+coverage+", "+cur_sample.interval+", "+tmsp+", "+cur_sample.suid+", "+cur_sample.utc.getTime()/1000+", "+start_pos+") ";
-						    		}
-						    		else{
-						    			sql="Insert into "+ result_table +" (seq, gid, time, percent, interval, tmstp, suid, utc, start_pos) values " +
-							    				" ("+seq+", "+gid+", "+travel_time+", "+coverage+", "+cur_sample.interval+", "+tmsp+", "+cur_sample.suid+", "+cur_sample.utc.getTime()/1000+", "+start_pos+") ";
-						    		}
-								    System.out.println(sql);
-								    stmt.executeUpdate(sql);
-								    pre_suid=cur_sample.suid;
+									finally{
+										con.commit();
+										updates.clear();
+									}	
+					    		}
+							}
+							/*if(gidlist.size()>0){
+								try{
+									System.out.println(sql);
+									//spt = con.setSavepoint("svpt1");
+									stmt.executeUpdate(sql);
 						    	}
 						    	catch (SQLException e) {
 								    e.printStackTrace();
-								    con.rollback(spt);
+								    con.rollback();
 								}
 								catch (Exception e) {
 								    e.printStackTrace();
@@ -620,8 +800,7 @@ public class TravelTimeAllocation {
 								finally {
 									con.commit();
 								}
-							}
-						//}
+							}*/
 					}
 				}
 				catch (SQLException e) {
@@ -630,6 +809,37 @@ public class TravelTimeAllocation {
 				catch (Exception e) {
 				    e.printStackTrace();
 				}
+			}
+			try{
+				if(updates.size()>0){
+					String sql="Insert into "+ result_table +" (seq, gid, next_gid, time, percent, interval, tmstp, suid, utc, start_pos) values \n";
+					try{
+			    		for(int vi=0; vi<updates.size(); vi++){
+	    		    		if(vi!=0){
+	    		    			sql+=", \n";
+	    		    		}
+			    			sql+=updates.get(vi);
+	    		    	}
+			    		//System.out.println("["+i+"/"+trips.size()+"]");
+			    		System.out.println(sql);
+	    		    	stmt.executeUpdate(sql);
+			    	}
+			    	catch (SQLException e) {
+			    		System.err.println(sql);
+					    e.printStackTrace();
+					    con.rollback();
+					}
+					finally{
+						con.commit();
+						updates.clear();
+					}	
+	    		}
+			}
+			catch (SQLException e) {
+			    e.printStackTrace();
+			}
+			catch (Exception e) {
+			    e.printStackTrace();
 			}
 		
 		DBconnector.dropConnection(con);
@@ -674,7 +884,7 @@ public class TravelTimeAllocation {
 	    				"from ( select temp.gid, temp.next_gid, temp.count, temp.weight_time/temp.weight as time from ( \n"+
 	    				"select gid, next_gid, count(*) as count, sum(time*interval) as weight_time, sum(interval*percent) as weight \n"+
 	    				"from "+ allocation_table +" group by gid, next_gid) as temp \n" +
-	    				"where temp.weight!=0 and count>5 order by gid, next_gid) as temp2, "+roadmap_table+" as roadmap where temp2.gid=roadmap.gid \n"+
+	    				"where temp.weight!=0 and count>2 order by gid, next_gid) as temp2, "+roadmap_table+" as roadmap where temp2.gid=roadmap.gid \n"+
 	    				"order by roadmap.class_id,gid,next_gid );";
 	    		System.out.println(sql);
 	    		stmt.executeUpdate(sql);
@@ -712,7 +922,7 @@ public class TravelTimeAllocation {
 	    				"from ( select temp.gid, temp.count, temp.weight_time/temp.weight as time from ( \n"+
 	    				"select gid, count(*) as count, sum(time*interval) as weight_time, sum(interval*percent) as weight \n"+
 	    				"from "+ allocation_table +" group by gid) as temp \n" +
-	    				"where temp.weight!=0 and count>5 order by gid) as temp2, "+roadmap_table+" as roadmap where temp2.gid=roadmap.gid \n"+
+	    				"where temp.weight!=0 and count>2 order by gid) as temp2, "+roadmap_table+" as roadmap where temp2.gid=roadmap.gid \n"+
 	    				");";
 	    		
 	    		System.out.println(sql);
@@ -784,13 +994,14 @@ public class TravelTimeAllocation {
 			utc bigint
 		);
 			
-		 */
+		 
 			try {
 				String sample_table="ring2_samples_nonrush";
 				String roadmap_table="ring2_roads";
-				TravelTimeAllocation.preprocess_intervals("mydb", "ring2_samples_nonrush");
+				
 				ArrayList<String> taxi_list=new ArrayList<String>();
 				TravelTimeAllocation.get_suids("mydb", sample_table, taxi_list);
+				TravelTimeAllocation.preprocess_intervals("mydb", "ring2_samples_nonrush", taxi_list);
 				
 				//for different period, use different Travel_time
 				AllocationRoadsegment[] roadlist=TravelTimeAllocation.get_roadlist("mydb", roadmap_table, false);
@@ -816,6 +1027,6 @@ public class TravelTimeAllocation {
 			} catch (Exception e) {
 				// TODO Auto-generated catch block
 				e.printStackTrace();
-			}
+			}*/
 	}
 }

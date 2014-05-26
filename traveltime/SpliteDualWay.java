@@ -41,6 +41,7 @@ public class SpliteDualWay {
 		Connection con = null;
 		Statement stmt = null;
 		ResultSet rs = null;
+		Savepoint spt=null;
 		double inconnectivity=RoadCostUpdater.inconnectivity;
 		
 		con = DBconnector.getConnection("jdbc:postgresql://localhost:5432/"+database, "postgres", "");
@@ -50,7 +51,37 @@ public class SpliteDualWay {
 		}
 		
 		try {
-		    stmt = con.createStatement();
+			
+			stmt = con.createStatement();
+			
+			try{
+	    		spt = con.setSavepoint("svpt4");
+	    		String sql="alter table "+ roadmap_table +" add column old_gid integer;";
+	    		System.out.println(sql);
+	    		stmt.executeUpdate(sql);
+	    	}
+	    	catch (SQLException e) {
+			    e.printStackTrace();
+			    con.rollback(spt);
+			}
+			finally{
+				con.commit();
+			}
+			
+			try{
+	    		spt = con.setSavepoint("svpt4");
+	    		String sql="update "+ roadmap_table +" set old_gid=gid;";
+	    		System.out.println(sql);
+	    		stmt.executeUpdate(sql);
+	    	}
+	    	catch (SQLException e) {
+			    e.printStackTrace();
+			    con.rollback(spt);
+			}
+			finally{
+				con.commit();
+			}
+
 		    System.out.println("select * from " + roadmap_table + " order by gid");
 		    rs = stmt.executeQuery("select * from " + roadmap_table + " order by gid");
 
@@ -78,7 +109,7 @@ public class SpliteDualWay {
 		    RoadSegment cur_road = null;
 		    for(int i=0; i<roadmap.size(); i++){
 		    	cur_road=roadmap.get(i);
-		    	if((cur_road.to_cost>10000.0 || cur_road.to_cost<0) || (cur_road.reverse_cost>1000.0 || cur_road.reverse_cost <0)){
+		    	if((cur_road.to_cost>10000.0 || cur_road.to_cost<0) || (cur_road.reverse_cost>10000.0 || cur_road.reverse_cost <0)){
 		    		continue;
 		    	}
 		    	else{
@@ -93,7 +124,8 @@ public class SpliteDualWay {
 				    		cur_road.name=cur_road.name.replaceAll("'", "''");
 				    		//System.out.println("["+i+"]"+cur_road.name);
 				    	}
-				    	sql="INSERT INTO "+roadmap_table +" VALUES ("+ max_gid +"," +cur_road.class_id+"," +cur_road.length+",'"+cur_road.name +"'," +cur_road.x1+"," +cur_road.y1+","
+				    	sql="INSERT INTO "+roadmap_table +"(gid, class_id, length, name, x1, y1,x2, y2, reverse_cost, rule, to_cost, " +
+				    			"maxspeed_forward, maxspeed_backward, osm_id,priority,the_geom,source,target, old_gid) VALUES ("+ max_gid +"," +cur_road.class_id+"," +cur_road.length+",'"+cur_road.name +"'," +cur_road.x1+"," +cur_road.y1+","
 				    			+cur_road.x2+","+cur_road.y2+","+cur_road.reverse_cost+",'',"+ inconnectivity +","+cur_road.max_speed+","+cur_road.max_speed+","
 				    			+cur_road.osm_id+","+cur_road.priority+",'"+cur_road.geom+"',"+cur_road.source+","+cur_road.target+","+cur_road.gid+")";
 				    	System.out.println("["+i+"]"+sql);
@@ -131,7 +163,7 @@ public class SpliteDualWay {
 		 */
 		try {
 			//
-			SpliteDualWay.splitways("mydb", "oneway_test");
+			//SpliteDualWay.splitways("mydb", "oneway_test");
 				
 		} catch (NumberFormatException e) {
 			// TODO Auto-generated catch block

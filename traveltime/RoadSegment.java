@@ -20,6 +20,12 @@ public class RoadSegment {
     public double max_inst_speed;
     public int reference;
     
+    public double taxi_ratio;
+    public double direction;
+    public double lane_count;
+    public double taxi_count;
+    public double traffic_count;
+    
     RoadSegment(){
     	avg_inst_speed=-1.0;
     	max_inst_speed=-1.0;
@@ -27,6 +33,8 @@ public class RoadSegment {
     	to_cost=-1.0;
     	reverse_cost=-1.0;
     	length=-1.0;
+    	taxi_ratio=-1.0;
+    	taxi_count=-1.0;
     }
 	
 	RoadSegment(int gid, double x1, double y1, double x2, double y2){
@@ -44,6 +52,13 @@ public class RoadSegment {
 	    this.reference=reference;
 	}
 	
+	RoadSegment(int gid, double average_speed, double taxi_count, double taxi_ratio){
+		this.gid=gid;
+		this.avg_inst_speed=average_speed;
+	    this.taxi_count=taxi_count;
+	    this.taxi_ratio=taxi_ratio;
+	}
+	
 	RoadSegment(int gid, long osm_id, int source, int target){
 		this.gid=gid;
 		this.osm_id=osm_id;
@@ -57,6 +72,17 @@ public class RoadSegment {
 		this.length=len;
 		this.class_id=class_id;
 		this.gid=gid;	
+	}
+	
+	RoadSegment(int gid, double x1, double y1, double x2, double y2, String geom, double lane_count){
+		this.gid=gid;
+		this.x1=x1;
+		this.x2=x2;
+		this.y1=y1;
+		this.y2=y2;
+		this.geom=geom;
+		this.lane_count=lane_count;
+		//this.gid=gid;	
 	}
 	
 	public String toString(){

@@ -80,6 +80,7 @@ public class DBconnector {
 			//import the data from database;
 		    stmt = con.createStatement();
 		    String sql="select suid from " + sample_table +" group by suid";
+		    //String sql="select suid from " + sample_table +" group by suid order by suid";
 		    //System.out.println(sql);
 		    rs = stmt.executeQuery(sql);
 		    
@@ -115,14 +116,24 @@ public class DBconnector {
 		
 		try {
 			//import the data from database;
+			SimpleDateFormat tempDate = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+		    String datetime = tempDate.format(new java.util.Date());
+		    System.out.println(datetime);
+		    
 		    stmt = con.createStatement();
 		    String sql="update " + sample_table +" SET gid=null , edge_offset=null, route=null";
-		    //System.out.println(sql);
-		    stmt.executeUpdate(sql);
-		    sql="update " + sample_table +" SET stop="+Sample.MOVING+" where stop is null or stop!="+Sample.LONG_STOP;
-		    //System.out.println(sql);
+		    System.out.println(sql);
 		    stmt.executeUpdate(sql);
 
+		    datetime = tempDate.format(new java.util.Date());
+		    System.out.println(datetime);
+		    sql="update " + sample_table +" SET stop="+Sample.MOVING+" where stop is null or stop!="+Sample.LONG_STOP;
+		    System.out.println(sql);
+		    stmt.executeUpdate(sql);
+		    datetime = tempDate.format(new java.util.Date());
+		    System.out.println(datetime);
+		    
+		    con.commit();
 		}
 		catch (SQLException e) {
 		    e.printStackTrace();
@@ -142,15 +153,14 @@ public class DBconnector {
 		Statement stmt = null;
 		ResultSet rs = null;
 		Savepoint spt1;
-		double distance_threshod=14.0; //paper sets this value as 200
+		double distance_threshod=14.0; 		//paper sets this value as 200
 		double temp_stop_threshold=13.0;
-		int number_threshold=5; //paper sets this value as 5
-		//int candidate_count_threshold=10;
+		int number_threshold=10; 			//paper sets this value as 5
+		
 		double unit_time=120.0;
 		double time_threshold=330.0;
 		double fade_factor=1.0;
 		double travel_threshold=900;
-		double default_priority=1.5;
 		
 		con = DBconnector.getConnection("jdbc:postgresql://localhost:5432/"+database, "postgres", "");
 		if (con == null) {
@@ -159,8 +169,13 @@ public class DBconnector {
 		}
 		
 		try {
+			TRshortestPath routing_instance=new TRshortestPath();
+			ArrayList<Path_element> path = new ArrayList<Path_element>();
+			
+			path.clear();
+			routing_instance.shortest_path("mydb", roadmap_table, intersection_table, 34650, 0.5, 12810, 0.5, path);
+			
 		    stmt = con.createStatement();
-		    
 		    
 		    //prepare the intersection_table
 		    String sql=//"DROP TABLE match_temp; \n"+
@@ -169,8 +184,8 @@ public class DBconnector {
 	    	//System.out.println(sql);
 	    	//stmt.executeUpdate(sql);
 		    
-		    sql="select * from " + sample_table +" where suid = " +suid + " and (stop !=1 or stop is null)order by utc";
-		    System.out.println(sql);
+		    sql="select * from " + sample_table +" where suid = " +suid + " and (ostdesc not like '%定位无效%')  order by utc";
+		    //System.out.println(sql);
 		    rs = stmt.executeQuery(sql);
 		    
 		    ArrayList<Sample> trajectory= new ArrayList<Sample>();
@@ -186,10 +201,10 @@ public class DBconnector {
 		    for(int i=0; i<trajectory.size(); i++){
 		    	pre_sample=cur_sample;
 		    	cur_sample=trajectory.get(i);
-		    	
+		    	/*
 		    	if(i==98){
 		    		System.out.println(cur_sample.toString()); 
-		    	}
+		    	}*/
 			    spt1 = con.setSavepoint("svpt1");
 			    pre_match_candidates = cur_match_candidates;
 			    cur_match_candidates = new ArrayList<MatchEntry>();
@@ -198,16 +213,14 @@ public class DBconnector {
 			    
 			    try{
 			    	// find the segment whose distance to cur_sample is smaller than the threshold;
-			    	sql="SELECT tmp.gid, tmp.x1, tmp.y1, tmp.x2, tmp.y2, tmp.offset, tmp.dist, " +
-			    			"ST_AsText(ST_Transform(ST_Line_Interpolate_Point(ST_Transform(tmp.the_geom,26986), tmp.offset), 4326)) AS point \n" +
+			    	sql="SELECT tmp.gid, tmp.x1, tmp.y1, tmp.x2, tmp.y2, tmp.dist, ST_Line_Locate_Point(tmp.the_geom, ST_GeometryFromText('POINT(" + cur_sample.lon + " "+cur_sample.lat + ")', 4326)) AS offset " +
 			    			"FROM (SELECT gid, x1, y1, x2, y2, the_geom, " +
-			    						"ST_Distance_Sphere(the_geom, ST_GeometryFromText('POINT(" + cur_sample.lon + " "+cur_sample.lat + ")', 4326)) AS dist, "+  
-			    						"ST_Line_Locate_Point(the_geom, ST_GeometryFromText('POINT(" + cur_sample.lon + " "+cur_sample.lat + ")', 4326)) AS offset "+
+			    						"ST_Distance_Sphere(the_geom, ST_GeometryFromText('POINT(" + cur_sample.lon + " "+cur_sample.lat + ")', 4326)) AS dist "+  
 			    				  " FROM "+ roadmap_table +" " +
-			    				  "WHERE the_geom && ST_setsrid(" +
-		            					"'BOX3D("+ (cur_sample.lon-0.05)+ " " + (cur_sample.lat-0.05) + "," + (cur_sample.lon+0.05)+ " " + (cur_sample.lat + 0.05)
-		            					+ ")'::box3d, 4326)) as tmp \n" +
-		            		" WHERE tmp.dist < "+distance_threshod+" ORDER BY tmp.dist limit "+ number_threshold;
+			    				  "WHERE the_geom && ST_setsrid( \n" +
+		            					"'BOX3D("+ (cur_sample.lon-0.001)+ " " + (cur_sample.lat-0.001) + "," + (cur_sample.lon+0.001)+ " " + (cur_sample.lat + 0.001)
+		            					+ ")'::box3d, 4326) \n ) as tmp \n" +
+		            		" WHERE tmp.dist <"+distance_threshod+" ORDER BY tmp.dist limit "+ number_threshold;
 			    	/*
 			    	select tmp.gid, tmp.x1, tmp.y1, tmp.x2, tmp.y2, tmp.offset, tmp.dist,
 						ST_AsText(ST_Transform(ST_Line_Interpolate_Point(ST_Transform(tmp.the_geom,26986), tmp.offset), 4326)) AS point
@@ -232,12 +245,12 @@ public class DBconnector {
 			    	//double min_matching_dis=-1.0;
 			    	while(rs.next()){
 			    		//"POINT(116.352949508079 39.9391208659371)"
-			    		String point= rs.getString("point");
+			    		/*String point= rs.getString("point");
 			    		int start=point.indexOf('(');
 			    		int end=point.indexOf(')');
-			    		int mid=point.indexOf(' ');
-			    		double p_x=Double.parseDouble(point.substring(start+1, mid));
-			    		double p_y=Double.parseDouble(point.substring(mid+1, end));	
+			    		int mid=point.indexOf(' ');*/
+			    		double p_x=0;//Double.parseDouble(point.substring(start+1, mid));
+			    		double p_y=0;//Double.parseDouble(point.substring(mid+1, end));	
 			    		
 			    		double distance = rs.getDouble("dist");
 			    		
@@ -252,7 +265,7 @@ public class DBconnector {
 				    		newEntry.matching_weight=DBconnector.getMatchWeight(cur_sample.distance);
 				    		//newEntry.final_weight=DBconnector.getMatchWeight(cur_sample.distance);
 			    		
-				    		if( cur_sample.min_matching_distance<0 ){
+				    		if(cur_sample.min_matching_distance<0 ){
 				    			cur_sample.min_matching_distance=distance;
 				    			if(distance < 2.5){
 				    				//dynamic_threshold=25.0;
@@ -268,15 +281,16 @@ public class DBconnector {
 			    	
 			    	//Date time2=new Date();
 			    	//System.out.println("Project Time:"+(time2.getTime()-time1.getTime()));
-			    	
+			    	/*
 			    	if(cur_sample.min_matching_distance >=0 ){
 			    		System.out.println("SAMPLE["+i+"],"+cur_sample.toString());
-			    	}
+			    	}*/
 			    	
 			    	MatchEntry cur_candidate=null, pre_candidate=null;
 			    	if(i!=0 && pre_match_candidates != null && !pre_match_candidates.isEmpty()){
 			    		//boolean route_success=true;
 			    		
+			    		//Date time5=new Date();
 			    		sql="select ST_Distance_Sphere(ST_GeometryFromText('POINT(" +
 			    				pre_sample.lon + " " + pre_sample.lat + ")', 4326),"+
 			    				"ST_GeometryFromText('POINT(" +
@@ -288,12 +302,15 @@ public class DBconnector {
 				    		distance=rs.getDouble("st_distance_sphere");
 					    }
 				    	double circle_distance=distance;
+				    	//Date time6=new Date();
+				    	//System.out.println("DISTANCE Time:"+(time6.getTime()-time5.getTime()));
 				    	
 				    	//store the moving distance to the previous sample, if the distance is too small then don't need to calculate the path;
 				    	cur_sample.moving_distance=distance;
 				    	trajectory.set(i, cur_sample);
 			    		
-				    	if( cur_sample.moving_distance >=0 && cur_sample.moving_distance < temp_stop_threshold ){
+				    	double timediff=Math.abs((cur_sample.utc.getTime()-pre_sample.utc.getTime())/1000);
+				    	if( timediff >= time_threshold || (cur_sample.moving_distance >=0 && cur_sample.moving_distance < temp_stop_threshold) ){
 				    		for(int j=0; j<cur_match_candidates.size();j++ ){
 				    			cur_candidate=cur_match_candidates.get(j);
 				    			cur_candidate.final_weight=cur_candidate.matching_weight;
@@ -318,18 +335,13 @@ public class DBconnector {
 				    			else{
 				    				no_predecessor=false;
 				    			}
+				    			
 				    			Savepoint spt2 = con.setSavepoint("svpt1");
 				    			
 				    			/*
-				    			sql="DROP TABLE match_temp; \n"+
-				    			"CREATE TABLE match_temp(to_cost float8, target_id int4, via_path text); \n"+
-				    			"INSERT INTO match_temp SELECT to_cost, to_way AS target_id, from_way AS via_path FROM "+intersection_table+" where to_way IS NOT NULL and from_way IS NOT NULL; \n";
-				    			//System.out.println(sql);
-				    			stmt.executeUpdate(sql);*/
-				    			
 				    			sql="SELECT * FROM pgr_trsp('select gid as id, source, target, to_cost as cost, reverse_cost from "+roadmap_table+"', "+
 				    			pre_candidate.road.gid + ", " + pre_candidate.offset + ", " + cur_candidate.road.gid + ", " + cur_candidate.offset + ", " +
-				    			"true, true, 'SELECT to_cost, target_id, via_path FROM match_temp') order by seq;";
+				    			"true, true, 'SELECT to_cost, target_id, via_path FROM match_temp') order by seq;";*/
 				    			/*
 				    			DROP TABLE match_temp;
 								CREATE TABLE match_temp(to_cost float8, target_id int4, via_path text);
@@ -347,32 +359,59 @@ public class DBconnector {
 				    			//System.out.println("try to match with:	" +pre_candidate.toString());
 				    			//System.out.println(sql);
 				    			try{
-				    				rs = stmt.executeQuery(sql);
-					    			double cost=0.0;
-					    			String path="";
+				    				
+				    				path.clear();
+					    			routing_instance.shortest_path("mydb", roadmap_table, intersection_table, pre_candidate.road.gid, pre_candidate.offset, cur_candidate.road.gid, cur_candidate.offset, path);
+					    			String new_path="";
+					    			double new_cost=0.0;
+					    			for(int x=0;x<path.size();x++){
+					    				new_path+=""+path.get(x).edge_id+",";
+					    				new_cost+=path.get(x).cost;
+					    	    	}
 					    			
+					    			/*rs = stmt.executeQuery(sql);
+					    			double cost=0.0;
+					    			String str_path="";
+
 							    	while(rs.next()){
 							    		//"POINT(116.352949508079 39.9391208659371)"
 							    		cost+=rs.getDouble("cost");
-							    		path+=""+rs.getLong("id2")+",";
+							    		str_path+=""+rs.getLong("id2")+",";
 								    }
 							    	
-							    	cost = Math.abs(cost*1000-circle_distance);
-							    	double timediff=Math.abs((cur_sample.utc.getTime()-pre_sample.utc.getTime())/1000);
+							    	System.out.println("new_cost="+new_cost);
+					    			System.out.println("new_path="+new_path);
+							    	System.out.println("str_cost="+cost);
+					    			System.out.println("str_path="+str_path);
+					    			if(!str_path.equals(new_path)){
+					    				System.err.println("str_path != new_path");
+					    				System.err.println("new_path="+new_path); 
+					    				System.err.println("str_path="+str_path);
+					    				str_path=new_path;
+					    			}
+					    			if(new_cost!=cost){
+					    				System.err.println("cost != new_cost");
+					    				System.err.println("new_cost=	"+new_cost); 
+					    				System.err.println("cost=		"+cost);
+					    				cost=new_cost;
+					    			}*/
+					    			
+					    			new_cost = Math.abs(new_cost*1000-circle_distance);
+							    	timediff=Math.abs((cur_sample.utc.getTime()-pre_sample.utc.getTime())/1000);
 							    	
-							    	if( timediff >= time_threshold || cost > travel_threshold*timediff/unit_time ){
+							    	if( timediff >= time_threshold || new_cost > travel_threshold*timediff/unit_time ){
 							    		continue;
 							    	}
 							    	else{
-								    	double weight = DBconnector.getTransitionWeight(cost, timediff) + (pre_candidate.final_weight)*fade_factor;
+								    	double weight = DBconnector.getTransitionWeight(new_cost, timediff) + (pre_candidate.final_weight)*fade_factor;
 								    	if( weight<0 && (cur_candidate.transit_weight >0 || weight > cur_candidate.transit_weight)){
 								    		cur_candidate.transit_weight = weight;
 								    		cur_candidate.pre_entry_index = k;
-								    		cur_candidate.path=path;
+								    		cur_candidate.path=new_path;
 								    	}
 							    	}
 				    			}
-				    			catch (SQLException e) {
+				    			catch (Exception e) {
 							    	con.rollback(spt2);
 								    //e.printStackTrace();
 								    System.err.println(e.getMessage());
@@ -391,7 +430,6 @@ public class DBconnector {
 				    		else{
 				    			if(cur_candidate.transit_weight<0){
 				    				cur_candidate.final_weight=cur_candidate.matching_weight+cur_candidate.transit_weight;
-				    				
 				    			}
 				    		}
 				    		cur_match_candidates.set(j, cur_candidate);
@@ -438,6 +476,7 @@ public class DBconnector {
 		    }*/
 		    
 		    //boolean first_sample=true;
+		    ArrayList<String> updates=new ArrayList<String>();
 		    for(int i=trajectory.size()-1; i>=1; i--){
 		    	
 		    	//first_sample=true;
@@ -462,23 +501,43 @@ public class DBconnector {
 		    		//write_into_database best_candidate;
 		    		//first_sample=false;
 		    		cur_sample=trajectory.get(i);
-		    		Savepoint spt3 = con.setSavepoint("svpt3");
-		    		try{	    			
-		    			sql="UPDATE "+ sample_table +" SET gid="+ best_candidate.road.gid +", edge_offset=" + best_candidate.offset +", route='"+ best_candidate.path +"' ";
-		    			if(cur_sample.moving_distance>=0 && cur_sample.moving_distance<=temp_stop_threshold){
-			    			sql+= ", stop="+Sample.TEM_STOP;
+		    		//Savepoint spt3 = con.setSavepoint("svpt3");
+		    		
+		    		try{
+			    		String newsql="UPDATE "+ sample_table +" SET gid="+ best_candidate.road.gid +", edge_offset=" + best_candidate.offset +", route='"+ best_candidate.path +"' ";
+			    		if(cur_sample.moving_distance>=0 && cur_sample.moving_distance<=temp_stop_threshold){
+				    		newsql+= ", stop="+Sample.TEM_STOP;
+				    	}
+			    		newsql+= " WHERE suid="+suid+" and utc="+(int)(trajectory.get(i).utc.getTime()/1000)+";\n";
+			    		updates.add(newsql);
+			    		if(updates.size()>500){
+			    			sql="";
+			    			try{
+			    				for(int vi=0; vi<updates.size(); vi++){
+			    					sql+=updates.get(vi);
+			    				}
+			    				//System.out.println(sql);
+			    				//Savepoint spt3 = con.setSavepoint("svpt3");
+			    				stmt.executeUpdate(sql);
+			    			}
+					    	catch (SQLException e) {
+					    		System.err.println(sql);
+							    e.printStackTrace();
+							    con.rollback();
+							}
+							finally{
+								con.commit();
+								updates.clear();
+							}	
 			    		}
-		    			sql+= " WHERE suid="+suid+" and utc="+(int)(trajectory.get(i).utc.getTime()/1000);
-		    			System.out.println(i+": "+sql);
-		    			stmt.executeUpdate(sql);
+		    			//System.out.println(i+": "+sql);
 		    		}
-		    		catch (SQLException e) {
-		    			con.rollback(spt3);
+		    		catch (Exception e) {
 		    			e.printStackTrace();
 		    		}
 		    		//find the next candidate
 		    		finally{
-		    			con.commit();
+		    			//con.commit();
 		    			
 			    		if(best_candidate.pre_entry_index >= 0 && best_candidate.pre_entry_index < cur_match_candidates.size()){
 			    			best_candidate=cur_match_candidates.get(best_candidate.pre_entry_index);
@@ -502,7 +561,7 @@ public class DBconnector {
 		    	
 		    	if(i<1){ break;}
 		    	
-		    	Savepoint spt3 = con.setSavepoint("svpt3");
+		    	//Savepoint spt3 = con.setSavepoint("svpt3");
 		    	/*sql="";
 		    	if(i==308){
 		    		System.out.println("here is 308");
@@ -511,28 +570,56 @@ public class DBconnector {
 		    	
 		    	if(best_candidate != null){
 		    		cur_sample=trajectory.get(i);
-		    		sql="UPDATE "+ sample_table +" SET gid="+best_candidate.road.gid+", edge_offset=" + best_candidate.offset;
+		    		String newsql="UPDATE "+ sample_table +" SET gid="+best_candidate.road.gid+", edge_offset=" + best_candidate.offset;
 		    		if( cur_sample.moving_distance>=0 && cur_sample.moving_distance <= temp_stop_threshold ){
-		    			sql+= ", stop="+ Sample.TEM_STOP;
+		    			newsql+= ", stop="+ Sample.TEM_STOP;
 		    		}
-		    		sql+=" WHERE suid="+suid+" and utc="+(int)(trajectory.get(i).utc.getTime()/1000);
-		    		try{    			
-			    		System.out.println(i+": "+sql);
-			    		//System.out.println(i+": "+best_candidate.final_weight);
-			    		stmt.executeUpdate(sql);
-			    	}
-			    	catch (SQLException e) {
-			    		con.rollback(spt3);
-			    		e.printStackTrace();
-			    	}
-			    	finally{
-			    		con.commit();
-			    	}
+		    		newsql+=" WHERE suid="+suid+" and utc="+(int)(trajectory.get(i).utc.getTime()/1000)+";\n";
+		    		
+		    		updates.add(newsql);
+		    		if(updates.size()>500){
+		    			sql="";
+		    			try{
+		    				for(int vi=0; vi<updates.size(); vi++){
+		    					sql+=updates.get(vi);
+		    				}
+		    				//System.out.println(sql);
+		    				stmt.executeUpdate(sql);
+		    			}
+				    	catch (SQLException e) {
+				    		System.err.println(sql);
+						    e.printStackTrace();
+						    con.rollback();
+						}
+						finally{
+							con.commit();
+							updates.clear();
+						}	
+		    		}
 		    	}
 		    	else{
 		    		//sql="UPDATE "+ sample_table +" SET gid=null , edge_offset=null, route=null WHERE suid="+suid+" and utc="+(int)(trajectory.get(i).utc.getTime()/1000);	
 		    	}
-		    }  
+		    } //end for
+		    if(updates.size()>0){
+    			sql="";
+				try{
+		    		for(int vi=0; vi<updates.size(); vi++){
+    		    		sql+=updates.get(vi);
+    		    	}
+		    		//System.out.println(sql);
+    		    	stmt.executeUpdate(sql);
+		    	}
+		    	catch (SQLException e) {
+		    		System.err.println(sql);
+				    e.printStackTrace();
+				    con.rollback();
+				}
+				finally{
+					con.commit();
+					updates.clear();
+				}	
+    		}
 		}
 		
 		catch (SQLException e) {
@@ -548,27 +635,8 @@ public class DBconnector {
 	}
 	
 	public static void main(String[] args){
-		
+		/*
 			try {
-				/*
-				long utc=((long)1231234903)*1000;
-
-				System.out.println("TIME second:"+ utc);
-				Date date=new Date(utc);
-				SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-				TimeZone zone=TimeZone.getTimeZone("GMT+8");
-				format.setTimeZone(zone);
-				System.out.println("TIME:"+format.format(date));
-				
-				
-	    		String point= "POINT(116.352949508079 39.9391208659371)";
-	    		int start=point.indexOf('(');
-	    		int end=point.indexOf(')');
-	    		int mid=point.indexOf(' ');
-	    		System.out.println("|"+point.substring(start+1, mid)+"|");
-	    		System.out.println("|"+point.substring(mid+1, end)+"|");	*/
-				
-				//ArrayList<Integer> roadsegments = new ArrayList<Integer>();
 				
 				if(args.length>0){
 					DBconnector.clear("mydb", args[0]);
@@ -580,9 +648,8 @@ public class DBconnector {
 					}
 				}
 				else{
-					//create table valid_gps_oneway as select * from valid_gps_test
 					//update valid_gps_oneway SET gid=null , edge_offset=null, route=null
-					String default_table="match_part_1";
+					String default_table="valid_gps_test";
 					DBconnector.clear("mydb", default_table);
 					ArrayList<String> taxi_list=new ArrayList<String>();
 					DBconnector.get_suids("mydb", default_table, taxi_list);
@@ -591,24 +658,12 @@ public class DBconnector {
 						DBconnector.mapMatching("mydb", taxi_list.get(i), default_table, "oneway_test", "intersection_test");
 						//DBconnector.mapMatching("mydb", "14609", default_table, "oneway_test", "intersection_test");
 					}
-					
-					/*String a="45638,45639,45632,45633,45634,31282,45625,9348,-1,";
-					String[] ss=new String[50];
-					ss=a.split(",");
-					//System.out.println("");
-					for(int j=0;j<ss.length;j++){
-						//System.out.println("|"+ss[j]+"|");
-						if(ss[j].matches("^[1-9][0-9]*$")){
-							roadsegments.add(Integer.parseInt(ss[j]));
-							System.out.println("|"+ss[j]+"|");
-						}
-					}*/
 				}
 				
 			} catch (NumberFormatException e) {
 				// TODO Auto-generated catch block
 				e.printStackTrace();
-			}
+			}*/
 	}
 	
 }

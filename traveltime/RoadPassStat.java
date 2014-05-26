@@ -82,7 +82,7 @@ public class RoadPassStat {
 		System.out.println("get_gids finished!");
 	}
 	
-	public static void passStat(String database, String road, String sample_table, String roadmap_table){
+	public static void passStat(String database, /*String road, */String sample_table, String roadmap_table){
 		Connection con = null;
 		Statement stmt = null;
 		ResultSet rs = null;
@@ -98,19 +98,45 @@ public class RoadPassStat {
 		try {
 
 		    stmt = con.createStatement();
-		    String sql="select count(*) from " + sample_table + " where route like '%,"+road+",%' or route like '"+road+",%'";
+		    /*String sql="select count(*) from " + sample_table + " where route like '%,"+road+",%' or route like '"+road+",%' and (ostdesc not like '%定位无效%') ;";
 		    //System.out.println(sql);
 		    rs = stmt.executeQuery(sql);
 
 		    reference_count=0;
 		    while(rs.next()){
 		    	reference_count=rs.getInt("count");
-		    }
-		    
-		    sql="select speed from " + sample_table + " where gid="+road+" and (stop is null or stop!=1) order by speed desc";
+		    }*/
+		    /*
+		    String sql="select speed from " + sample_table + " where gid="+road+" and (stop is null or stop!=1) and (ostdesc not like '%定位无效%') order by speed desc";
 		    //System.out.println(sql);
-		    rs = stmt.executeQuery(sql);
-
+		    rs = stmt.executeQuery(sql);*/
+		    
+		    /*
+		    try{
+			    String sql="create table "+ "init_speed_"+sample_table +" as select gid, count(*) as count, avg(speed)/100 as avg_speed, max(speed)/100 as max_speed from " + sample_table + " where (gid is not null) and (stop is null or stop!=1) and (ostdesc not like '%定位无效%') and speed>0 group by gid";
+			    System.out.println(sql);
+			    rs = stmt.executeQuery(sql);
+		    }
+		    catch (Exception e) {
+				e.printStackTrace();
+			}
+			finally{
+			   con.commit();
+			}
+		    
+		    try{
+			    String sql="create index "+ "init_speed_"+sample_table +"_gid_idx on "+ "init_speed_"+sample_table +"(gid);";
+			    System.out.println(sql);
+			    stmt.executeUpdate(sql);
+		    }
+		    catch (Exception e) {
+				e.printStackTrace();
+			}
+			finally{
+			   con.commit();
+			}*/
+		    
+		    /*
 		    ArrayList<Double> speed_list=new ArrayList<Double>();
 		    double everage_speed=0;
 		    double max_speed=0;
@@ -132,18 +158,87 @@ public class RoadPassStat {
 		    }
 		    if(speed_list.size()>0){
 		    	max_speed=speed_list.get(0);
-		    }
+		    }*/
 
-			try{
-			    sql="UPDATE "+roadmap_table +" SET reference="+reference_count+ ", average_speed="+everage_speed+", max_speed="+max_speed+ " WHERE gid="+road;
+		    try{
+			    String sql="UPDATE "+roadmap_table +" SET reference=0, average_speed=0, max_speed=0;";
 			    System.out.println(sql);
 			    stmt.executeUpdate(sql);
 			}
-			catch (SQLException e) {
+			catch (Exception e) {
 				e.printStackTrace();
 			}
 			finally{
 			   con.commit();
+			}
+		    
+			try{
+			    String sql="UPDATE "+roadmap_table +" SET reference="+"init_speed_"+sample_table+".count, average_speed="+"init_speed_"+sample_table+".avg_speed, max_speed="+"init_speed_"+sample_table+".max_speed" +
+			    		" from init_speed_"+sample_table+" WHERE "+roadmap_table +".gid="+"init_speed_"+sample_table+".gid;";
+			    System.out.println(sql);
+			    stmt.executeUpdate(sql);
+			}
+			catch (Exception e) {
+				e.printStackTrace();
+			}
+			finally{
+			   con.commit();
+			}
+		}
+		
+		catch (SQLException e) {
+		    e.printStackTrace();
+		}
+		catch (Exception e) {
+		    e.printStackTrace();
+		}
+		finally {
+		    DBconnector.dropConnection(con);
+		}
+		System.out.println("passStat!");
+	}
+	
+
+	public static void create_index_on_samples(String database, String sample_table){
+		Connection con = null;
+		Statement stmt = null;
+		Savepoint spt=null;
+		
+		con = DBconnector.getConnection("jdbc:postgresql://localhost:5432/"+database, "postgres", "");
+		if (con == null) {
+			System.out.println("Failed to make connection!");
+			return;
+		}
+		
+		try {
+
+		    stmt = con.createStatement();
+			try{
+				spt = con.setSavepoint("svpt3");
+				String sql="DROP INDEX "+sample_table+"_gid_idx;";
+				System.out.println(sql);
+				stmt.executeUpdate(sql);
+			}
+			catch (SQLException e) {
+			    e.printStackTrace();
+			    con.rollback(spt);
+			}
+			finally{
+				con.commit();
+			}
+			
+			try{
+				spt = con.setSavepoint("svpt4");
+				String sql="CREATE INDEX "+sample_table+"_gid_idx ON "+ sample_table +"(gid);";
+				System.out.println(sql);
+				stmt.executeUpdate(sql);
+			}
+			catch (SQLException e) {
+			    e.printStackTrace();
+			    con.rollback(spt);
+			}
+			finally{
+				con.commit();
 			}
 		}
 		
@@ -292,9 +387,9 @@ public class RoadPassStat {
 		    stmt = con.createStatement();
 		    String sql="select class_id, count(*), avg(max_speed) as avg_max, stddev(max_speed) as dev_max, " +
 		    		"avg(average_speed) as avg_avg, stddev(average_speed) as dev_avg from " + roadmap_table + 
-		    		" where max_speed!=0 and average_speed !=0 group by class_id order by class_id";
+		    		" where max_speed>0 and average_speed >0 group by class_id order by class_id";
 		    
-		    System.out.println(sql);
+		    //System.out.println(sql);
 		    rs = stmt.executeQuery(sql);
 		    
 		    if(hmp_class2speed==null){
@@ -334,12 +429,53 @@ public class RoadPassStat {
 			//import the data from database;
 		    stmt = con.createStatement();
 		    if(new_roadmap!=null){
-		    	String sql="drop table "+new_roadmap;
-		    	stmt.executeUpdate(sql);
-		    	sql="create table "+new_roadmap+" as select * from " + roadmap_table;
-		    	stmt.executeUpdate(sql);
+		    	try{
+		    		spt = con.setSavepoint("svpt1");
+		    		String sql="drop table "+new_roadmap;
+		    		stmt.executeUpdate(sql);
+		    	}
+		    	catch (SQLException e) {
+				    e.printStackTrace();
+				    con.rollback(spt);
+				}
+				catch (Exception e) {
+				    e.printStackTrace();
+				}
+				finally {
+					con.commit();
+				}
+		    	try{
+		    		spt = con.setSavepoint("svpt1");
+			    	String sql="create table "+new_roadmap+" as select * from " + roadmap_table;
+			    	stmt.executeUpdate(sql);
+		    	}
+		    	catch (SQLException e) {
+				    e.printStackTrace();
+				    con.rollback(spt);
+				}
+				catch (Exception e) {
+				    e.printStackTrace();
+				}
+				finally {
+					con.commit();
+				}
+		    	try{
+		    		spt = con.setSavepoint("svpt1");
+			    	String sql="create index "+new_roadmap+"_gid_index on " + new_roadmap +"(gid);";
+			    	stmt.executeUpdate(sql);
+		    	}
+		    	catch (SQLException e) {
+				    e.printStackTrace();
+				    con.rollback(spt);
+				}
+				catch (Exception e) {
+				    e.printStackTrace();
+				}
+				finally {
+					con.commit();
+				}
 		    }
-		    String sql="select * from " + roadmap_table;
+		    String sql="select * from " + new_roadmap;
 		    //System.out.println(sql);
 		    rs = stmt.executeQuery(sql);
 		    while(rs.next()){
@@ -395,7 +531,7 @@ public class RoadPassStat {
 		    	
 		    	try{
 		    		spt = con.setSavepoint("svpt1");
-		    		sql="UPDATE "+roadmap_table +" SET max_speed="+cur_road.max_inst_speed+ ", average_speed="+cur_road.avg_inst_speed +" WHERE gid="+ cur_road.gid;
+		    		sql="UPDATE "+ new_roadmap +" SET max_speed="+cur_road.max_inst_speed+ ", average_speed="+cur_road.avg_inst_speed +" WHERE gid="+ cur_road.gid;
 		    		/*
 		    		String reason="";
 		    		if(specific_update){
@@ -403,8 +539,8 @@ public class RoadPassStat {
 		    		}
 		    		else{
 		    			reason+="default_update";
-		    		}
-				    System.out.println(reason+":["+i+"/"+roadmap.size()+"]"+ sql + " cur_road.class_id="+cur_road.class_id);*/
+		    		}*/
+				    System.out.println("improve_speed:["+i+"/"+roadmap.size()+"]"+ sql + " cur_road.class_id="+cur_road.class_id);
 				    stmt.executeUpdate(sql);
 		    	}
 		    	catch (SQLException e) {
@@ -451,6 +587,7 @@ public class RoadPassStat {
 		 */
 			try {
 				
+				/*
 				ArrayList<String> gid_list=new ArrayList<String>();
 				RoadPassStat.change_scheme("mydb", "ring2_roads");
 				RoadPassStat.get_gids("mydb", "ring2_roads", gid_list);
@@ -461,7 +598,7 @@ public class RoadPassStat {
 				
 				HashMap<Integer, RoadClass> hmp_class2speed= new HashMap<Integer, RoadClass>();
 				RoadPassStat.get_class2speed("mydb", "ring2_roads", hmp_class2speed);
-				RoadPassStat.improve_speed("mydb", "ring2_roads", "ring2_roads_speed", hmp_class2speed);
+				RoadPassStat.improve_speed("mydb", "ring2_roads", "ring2_roads_speed", hmp_class2speed);*/
 				
 			} catch (NumberFormatException e) {
 				// TODO Auto-generated catch block

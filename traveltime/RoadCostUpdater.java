@@ -68,7 +68,9 @@ public class RoadCostUpdater {
 		    
 		    RoadSegment cur_road = null;
 		    double priority=1.0;
+		    
 		    for(int i=0; i<roadmap.size(); i++){
+		    	
 		    	cur_road=roadmap.get(i);
 		    	switch(cur_road.class_id){
 		    	case 101://
@@ -127,7 +129,7 @@ public class RoadCostUpdater {
 		    		cur_road.to_cost=cur_road.length*priority;
 		    	}
 		    	
-		    	if(cur_road.reverse_cost>1000.0 || cur_road.reverse_cost <0){
+		    	if(cur_road.reverse_cost>10000.0 || cur_road.reverse_cost <0){
 		    		//System.out.println("infinite solved");
 		    		cur_road.reverse_cost=inconnectivity;
 		    	}
@@ -138,7 +140,7 @@ public class RoadCostUpdater {
 			    try{
 			    	// find the segment whose distance to cur_sample is smaller than the threshold;
 			    	String sql="UPDATE "+roadmap_table +" SET to_cost="+cur_road.to_cost+ ", reverse_cost="+cur_road.reverse_cost +" WHERE gid="+cur_road.gid;
-			    	//System.out.println("["+i+"]"+sql);
+			    	System.out.println("["+i+"]"+sql);
 			    	stmt.executeUpdate(sql);
 			    }
 			    catch (SQLException e) {
@@ -166,7 +168,7 @@ public class RoadCostUpdater {
 		
 		for(int i=0; i<1; i++){
 			try {
-				RoadCostUpdater.updateWeight("mydb", "ways_test");
+				//RoadCostUpdater.updateWeight("mydb", "ways_test");
 				
 			} catch (NumberFormatException e) {
 				// TODO Auto-generated catch block

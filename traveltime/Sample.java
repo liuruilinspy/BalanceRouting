@@ -26,7 +26,7 @@ public class Sample {
 	public int pre_gid;
 	public double pre_offset;
 	
-	public int passenager;
+	public int passenager; //0 has no passenger and 1 has passenager
 	
 	Sample(long suid, long utc, long lat, long lon, int head, long speed, long distance){
 		this.suid=suid;

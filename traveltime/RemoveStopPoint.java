@@ -43,6 +43,8 @@ public class RemoveStopPoint {
 		return con;
 	}
 	
+	
+	
 	public static void get_suids(String database, String sample_table, ArrayList<String> taxi_list){
 		Connection con = null;
 		Statement stmt = null;
@@ -57,6 +59,20 @@ public class RemoveStopPoint {
 		try {
 			//import the data from database;
 		    stmt = con.createStatement();
+		    
+		    try{
+	    		String sql="ALTER TABLE "+ sample_table +" add column stop integer;";
+	    		System.out.println(sql);
+	    		stmt.executeUpdate(sql);
+	    	}
+	    	catch (SQLException e) {
+			    e.printStackTrace();
+			    con.rollback();
+			}
+			finally{
+				con.commit();
+			}
+		    
 		    String sql="select suid from " + sample_table +" group by suid";
 		    //System.out.println(sql);
 		    rs = stmt.executeQuery(sql);
@@ -68,6 +84,61 @@ public class RemoveStopPoint {
 		    while(rs.next()){
 		    	taxi_list.add(rs.getString("suid"));
 		    }
+		}
+		catch (SQLException e) {
+		    e.printStackTrace();
+		}
+		catch (Exception e) {
+		    e.printStackTrace();
+		}
+		finally {
+		    DBconnector.dropConnection(con);
+		}
+		System.out.println("get_suids finished!");
+	}
+	
+	public static void create_matchtable(String database, String sample_table, String match_table){
+		Connection con = null;
+		Statement stmt = null;
+		ResultSet rs = null;
+		
+		con = DBconnector.getConnection("jdbc:postgresql://localhost:5432/"+database, "postgres", "");
+		if (con == null) {
+			System.out.println("Failed to make connection!");
+			return;
+		}
+		
+		try {
+			//import the data from database;
+		    stmt = con.createStatement();
+		    
+		    try{
+	    		String sql="create TABLE "+match_table+" as select * from "+sample_table
+	    				+" where ostdesc not like '%定位无效%';";
+	    		System.out.println(sql);
+	    		stmt.executeUpdate(sql);
+	    	}
+	    	catch (SQLException e) {
+			    e.printStackTrace();
+			    con.rollback();
+			}
+			finally{
+				con.commit();
+			}
+		    
+		    try{
+	    		String sql="ALTER TABLE "+match_table+" add column stop integer;";
+	    		System.out.println(sql);
+	    		stmt.executeUpdate(sql);
+	    	}
+	    	catch (SQLException e) {
+			    e.printStackTrace();
+			    con.rollback();
+			}
+			finally{
+				con.commit();
+			}
+		    
 		}
 		catch (SQLException e) {
 		    e.printStackTrace();
@@ -97,9 +168,10 @@ public class RemoveStopPoint {
 		}
 		
 		try {
+			
 			//import the data from database;
 		    stmt = con.createStatement();
-		    String sql="select * from " + sample_table +" where suid = " +suid + " order by utc";
+		    String sql="select * from " + sample_table +" where suid = " +suid + " and ostdesc not like '%定位无效%' order by utc";
 		    //System.out.println(sql);
 		    rs = stmt.executeQuery(sql);
 		    
@@ -156,23 +228,54 @@ public class RemoveStopPoint {
 		    }
 		    
 		    //write the test result into database
+		    ArrayList<String> updates=new ArrayList<String>();
+		    //String static_sql="UPDATE "+ sample_table +" SET stop="+ cur_sample.stop +" WHERE suid="+suid+" and ";
 		    for(cur_pos=0; cur_pos<trajectory.size(); cur_pos++){
 		    	cur_sample=trajectory.get(cur_pos);
 		    	if(cur_sample.stop==0){
 		    		continue;
 		    	}
-		    	sql="UPDATE "+ sample_table +" SET stop="+ cur_sample.stop +" WHERE suid="+suid+" and utc="+(int)(cur_sample.utc.getTime()/1000);
-		    	try{
-			    	//System.out.println("Sample["+cur_pos+"]"+ sql);
-			    	stmt.executeUpdate(sql);
-				}
-				catch (SQLException e) {
-					e.printStackTrace();
+		    	String newsql=" UPDATE "+ sample_table +" SET stop="+ cur_sample.stop +" WHERE suid="+suid+" and utc="+(int)(cur_sample.utc.getTime()/1000)+";\n";
+		    	updates.add(newsql);
+	    		if(updates.size()>500){
+	    			sql="";
+					try{
+			    		for(int vi=0; vi<updates.size(); vi++){
+	    		    		sql+=updates.get(vi);
+	    		    	}
+			    		//System.out.println("["+i+"/"+trips.size()+"]");
+	    		    	stmt.executeUpdate(sql);
+			    	}
+			    	catch (SQLException e) {
+			    		System.err.println(sql);
+					    e.printStackTrace();
+					    con.rollback();
+					}
+					finally{
+						con.commit();
+						updates.clear();
+					}	
+	    		}
+		    }
+		    if(updates.size()>0){
+    			sql="";
+				try{
+		    		for(int vi=0; vi<updates.size(); vi++){
+    		    		sql+=updates.get(vi);
+    		    	}
+		    		//System.out.println("["+i+"/"+trips.size()+"]");
+    		    	stmt.executeUpdate(sql);
+		    	}
+		    	catch (SQLException e) {
+		    		System.err.println(sql);
+				    e.printStackTrace();
+				    con.rollback();
 				}
 				finally{
 					con.commit();
-				}
-		    }
+					updates.clear();
+				}	
+    		}
 		}
 		
 		catch (SQLException e) {
